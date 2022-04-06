@@ -66,6 +66,7 @@ def new_account(connection, cursor,data):
         config.close_connection(connection,cursor)
         return response_object,200
 
+# @APIHandler.token_required
 def topup(connection,cursor,data,issuer_account_id):
     qry = f"""SELECT * FROM public.accounts
     WHERE account_id='{issuer_account_id}'
@@ -93,7 +94,7 @@ def topup(connection,cursor,data,issuer_account_id):
             config.close_connection(connection,cursor)
             return {"status":"success"},200
 
-@config.timeout(5)
+@config.timeout(300)
 # @APIHandler.token_required
 def transaction_create(connection,cursor,data,merchant_account_id):
     transaction_id = None

@@ -19,14 +19,15 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, request: bytes, client_address: Tuple[str, int], server: socketserver.BaseServer):
         super().__init__(request, client_address, server)
 
-    def token_required(self,f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            token = self.headers['Authorization']
-            if not token:
-                return {"code":"failed"},400
-            return f(*args, **kwargs)
-        return decorated
+    # def token_required(self):
+    #     def decorate(f):
+    #         def new_f(*args, **kwargs):
+    #             token = self.headers['Authorization']
+    #             if not token:
+    #                 return {"messenger":"need token"}
+    #             return f(*args, **kwargs)
+    #         return new_f
+    #     return decorate
 
     def do_GET(self):
         if self.path.find('account') != -1 and self.path.find('token') != -1:
