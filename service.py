@@ -1,12 +1,16 @@
-from urllib import response
-from api_handler import APIHandler
+from lib2to3.pgen2 import token
+from urllib import request, response
 from config import TimeoutError
+from config import token_required
 import config
 import uuid
 import jwt
 import os
 import hashlib
 import json
+import service
+import http
+import requests
 
 key = os.getenv('SECRET_KEY', 'fortest')
 
@@ -66,8 +70,9 @@ def new_account(connection, cursor,data):
         config.close_connection(connection,cursor)
         return response_object,200
 
-# @APIHandler.token_required
-def topup(connection,cursor,data,issuer_account_id):
+@token_required
+def topup(token,connection,cursor,data):
+    issuer_account_id = service.decode_token(token)['account_id']
     qry = f"""SELECT * FROM public.accounts
     WHERE account_id='{issuer_account_id}'
     AND type='issuer'"""
@@ -95,8 +100,9 @@ def topup(connection,cursor,data,issuer_account_id):
             return {"status":"success"},200
 
 @config.timeout(300)
-# @APIHandler.token_required
-def transaction_create(connection,cursor,data,merchant_account_id):
+@token_required
+def transaction_create(token,connection,cursor,data):
+    merchant_account_id = service.decode_token(token)['account_id']
     transaction_id = None
     qry = f"""SELECT * FROM public.accounts
     WHERE account_id='{merchant_account_id}'
@@ -196,8 +202,9 @@ def transaction_create(connection,cursor,data,merchant_account_id):
             return response_object,200
 
 @config.timeout(300)
-# @APIHandler.token_required
-def transaction_confirm(connection,cursor,personal_account_id,transaction_id):
+@token_required
+def transaction_confirm(token,connection,cursor,transaction_id):
+    personal_account_id = service.decode_token(token)['account_id']
     qry = f"""SELECT balance FROM public.accounts
     WHERE account_id='{personal_account_id}'"""
     cursor.execute(qry)
@@ -214,24 +221,29 @@ def transaction_confirm(connection,cursor,personal_account_id,transaction_id):
         return {"code":"wrong status"},400
     if balance[0] >= data[0]:
         qry_str = f"""UPDATE public.transactions
-        SET status='CONFIRMED'
-        WHERE transaction_id='{transaction_id}'"""
+        SET status='CONFIRMED',account_outcome_id='{personal_account_id}'
+        WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
         cursor.execute(qry_str)
+        # extraData = cursor.fetchone()
+        # update(extraData[0],'CONFIRMED')
         connection.commit()
         config.close_connection(connection,cursor)
         return {"code":"confirm successful"},200
     else:
         qry_str = f"""UPDATE public.transactions
-        SET status='FAILED'
-        WHERE transaction_id='{transaction_id}'"""
+        SET status='FAILED',account_outcome_id='{personal_account_id}'
+        WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
         cursor.execute(qry_str)
+        # extraData = cursor.fetchone()
+        # update(extraData[0],'FAILED')
         connection.commit()
         config.close_connection(connection,cursor)
         return {"code":"false"},400
 
 @config.timeout(300)
-# @APIHandler.token_required
-def transaction_verify(connection,cursor,personal_account_id,transaction_id):
+@token_required
+def transaction_verify(token,connection,cursor,transaction_id):
+    personal_account_id = service.decode_token(token)['account_id']
     qry = f"""SELECT status,account_income_id,amount FROM public.transactions
     WHERE transaction_id='{transaction_id}'"""
     cursor.execute(qry)
@@ -251,9 +263,11 @@ def transaction_verify(connection,cursor,personal_account_id,transaction_id):
         amount = cursor.fetchone()
         if balance[0] >= amount[0]:
             qry_str = f"""UPDATE public.transactions
-            SET status='COMPLETED',account_outcome_id='{personal_account_id}'
-            WHERE transaction_id='{transaction_id}'"""
+            SET status='VERIFIED'
+            WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
             cursor.execute(qry_str)
+            # extraData = cursor.fetchone()
+            # update(extraData[0],'VERIFIED')
             connection.commit()
             qry_str = f"""UPDATE public.accounts
             SET balance=balance-{data[2]}
@@ -265,20 +279,30 @@ def transaction_verify(connection,cursor,personal_account_id,transaction_id):
             WHERE account_id='{data[1]}'"""
             cursor.execute(qry_str)
             connection.commit()
+            qry_str = f"""UPDATE public.transactions
+            SET status='COMPLETED'
+            WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
+            cursor.execute(qry_str)
+            # extraData = cursor.fetchone()
+            # update(extraData[0],'COMPLETED')
+            connection.commit()
             config.close_connection(connection,cursor)
             return {"code":"complete successful"},200
         else:
             qry_str = f"""UPDATE public.transactions
             SET status='FAILED'
-            WHERE transaction_id='{transaction_id}'"""
+            WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
             cursor.execute(qry_str)
+            # extraData = cursor.fetchone()
+            # update(extraData[0],'FAILED')
             connection.commit()
             config.close_connection(connection,cursor)
             return {"code":"false"},400
 
 @config.timeout(300)
-# @APIHandler.token_required
-def transaction_cancel(connection,cursor,personal_account_id,transaction_id):
+@token_required
+def transaction_cancel(token,connection,cursor,transaction_id):
+    personal_account_id = service.decode_token(token)['account_id']
     qry = f"""SELECT status FROM public.transactions
     WHERE transaction_id='{transaction_id}'"""
     cursor.execute(qry)
@@ -290,16 +314,21 @@ def transaction_cancel(connection,cursor,personal_account_id,transaction_id):
     else:
         qry_str = f"""UPDATE public.transactions
         SET status='CANCELED',account_outcome_id='{personal_account_id}'
-        WHERE transaction_id='{transaction_id}'"""
+        WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
         cursor.execute(qry_str)
+        # extraData = cursor.fetchone()
+        # update(extraData[0],'CANCEL')
         connection.commit()
         return {"code":"cancel successful"},200
 
-def transaction_expired(connection,cursor,transaction_id):
+@token_required
+def transaction_expired(token,connection,cursor,transaction_id):
     qry_str = f"""UPDATE public.transactions
     SET status='EXPIRED'
-    WHERE transaction_id='{transaction_id}'"""
+    WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
     cursor.execute(qry_str)
+    # extraData = cursor.fetchone()
+    # update(extraData[0],'CANCEL')
     connection.commit()
     return {"code":"Expired"},400
 
@@ -318,3 +347,9 @@ def get_token(data):
 
 def decode_token(data):
     return jwt.decode(data,key,algorithms='HS256')
+
+def update(extraData,status):
+    url = f'http://127.0.0.1:5000/cart/update_status/{extraData}/{status}'
+    r = requests.post(url)
+    return {"code":"update"},200
+

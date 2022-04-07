@@ -1,7 +1,6 @@
 import functools
 import http.server
 from pkgutil import get_data
-from functools import wraps
 import socketserver
 import json
 from typing import Tuple
@@ -19,15 +18,6 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, request: bytes, client_address: Tuple[str, int], server: socketserver.BaseServer):
         super().__init__(request, client_address, server)
 
-    # def token_required(self):
-    #     def decorate(f):
-    #         def new_f(*args, **kwargs):
-    #             token = self.headers['Authorization']
-    #             if not token:
-    #                 return {"messenger":"need token"}
-    #             return f(*args, **kwargs)
-    #         return new_f
-    #     return decorate
 
     def do_GET(self):
         if self.path.find('account') != -1 and self.path.find('token') != -1:
@@ -69,8 +59,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/json')
             self.end_headers()
             connection, cursor = config.connect()
-            issuer_accound_id = service.decode_token(token)['account_id']
-            output_data,code = service.topup(connection,cursor,data,issuer_accound_id)
+            output_data,code = service.topup(token,connection,cursor,data)
             output_json = json.dumps(output_data)
             self.wfile.write(output_json.encode('utf-8'))
         
@@ -81,8 +70,7 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/json')
             self.end_headers()
             connection, cursor = config.connect()
-            merchant_account_id = service.decode_token(token)['account_id']
-            output_data,code = service.transaction_create(connection,cursor,data,merchant_account_id)
+            output_data,code = service.transaction_create(token,connection,cursor,data)
             output_json = json.dumps(output_data)
             self.wfile.write(output_json.encode('utf-8'))
 
@@ -93,13 +81,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/json')
             self.end_headers()
             connection, cursor = config.connect()
-            personal_account_id = service.decode_token(token)['account_id']
             try:
-                output_data,code = service.transaction_confirm(connection,cursor,personal_account_id,data['transactionId'])
+                output_data,code = service.transaction_confirm(token,connection,cursor,data['transactionId'])
                 output_json = json.dumps(output_data)
                 self.wfile.write(output_json.encode('utf-8'))
             except:
-                output_data,code = service.transaction_expired(connection,cursor,data['transactionId'])
+                output_data,code = service.transaction_expired(token,connection,cursor,data['transactionId'])
                 output_json = json.dumps(output_data)
                 self.wfile.write(output_json.encode('utf-8'))
 
@@ -110,13 +97,12 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/json')
             self.end_headers()
             connection, cursor = config.connect()
-            personal_account_id = service.decode_token(token)['account_id']
             try:
-                output_data,code = service.transaction_verify(connection,cursor,personal_account_id,data['transactionId'])
+                output_data,code = service.transaction_verify(token,connection,cursor,data['transactionId'])
                 output_json = json.dumps(output_data)
                 self.wfile.write(output_json.encode('utf-8'))
             except:
-                output_data,code = service.transaction_expired(connection,cursor,data['transactionId'])
+                output_data,code = service.transaction_expired(token,connection,cursor,data['transactionId'])
                 output_json = json.dumps(output_data)
                 self.wfile.write(output_json.encode('utf-8'))
 
@@ -127,15 +113,24 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'text/json')
             self.end_headers()
             connection, cursor = config.connect()
-            personal_account_id = service.decode_token(token)['account_id']
             try:
-                output_data,code = service.transaction_cancel(connection,cursor,personal_account_id,data['transactionId'])
+                output_data,code = service.transaction_cancel(token,connection,cursor,data['transactionId'])
                 output_json = json.dumps(output_data)
                 self.wfile.write(output_json.encode('utf-8'))
             except:
-                output_data,code = service.transaction_expired(connection,cursor,data['transactionId'])
+                output_data,code = service.transaction_expired(token,connection,cursor,data['transactionId'])
                 output_json = json.dumps(output_data)
                 self.wfile.write(output_json.encode('utf-8'))
+        
+        elif self.path == '/merchant_url':
+            data = self.get_data()
+            self.send_response(200)
+            self.send_header('Content-type', 'text/json')
+            self.end_headers()
+            output_data,code = service.update(data['extraData'],data['status'])
+            output_json = json.dumps(output_data)
+            self.wfile.write(output_json.encode('utf-8'))
+
     
 
 
@@ -149,3 +144,4 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             input_data = None
             
         return input_data
+

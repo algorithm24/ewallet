@@ -127,3 +127,13 @@ def timeout(seconds_before_timeout):
             return result
         return new_f
     return decorate
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = args[0]
+        if not token:
+            return {"messenger":"token required"},401
+        return f(*args, **kwargs)
+    return decorated
+
