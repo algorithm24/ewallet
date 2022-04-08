@@ -6,6 +6,7 @@ from api_handler import APIHandler
 import psycopg2
 
 if __name__ == "__main__":
+    # http part
     try:
         connection,cursor = config.connect()
         PORT = 8000
@@ -19,6 +20,7 @@ if __name__ == "__main__":
     finally:
         config.close_connection(connection,cursor)
         print("Close connection")
+    # database part
     # connection,cursor = config.connect()   
     # config.data_type() 
     # if cursor == None:
