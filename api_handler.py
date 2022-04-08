@@ -24,9 +24,10 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/text")
             self.end_headers()
+            connection, cursor = config.connect()
             parsed_url = self.path.split('/')
             account_id = parsed_url[2]
-            output_data,code = service.get_token(account_id)
+            output_data,code = service.get_token(connection,cursor,account_id)
             self.wfile.write(output_data.encode('utf-8'))
 
     

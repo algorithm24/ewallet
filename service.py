@@ -72,7 +72,10 @@ def new_account(connection, cursor,data):
 
 @token_required
 def topup(token,connection,cursor,data):
-    issuer_account_id = service.decode_token(token)['account_id']
+    try:
+        issuer_account_id = service.decode_token(token)['account_id']
+    except:
+        return {"code":"wrong type account"},400
     qry = f"""SELECT * FROM public.accounts
     WHERE account_id='{issuer_account_id}'
     AND type='issuer'"""
@@ -102,7 +105,14 @@ def topup(token,connection,cursor,data):
 @config.timeout(300)
 @token_required
 def transaction_create(token,connection,cursor,data):
-    merchant_account_id = service.decode_token(token)['account_id']
+    mer_qry = f"""SELECT api_key FROM public.merchants
+    WHERE merchant_id='{data['merchantId']}'"""
+    cursor.execute(mer_qry)
+    merchant_api_key = os.getenv('SECRET_KEY', cursor.fetchone()[0])
+    try:
+        merchant_account_id = jwt.decode(token,key=merchant_api_key,algorithms='HS256')['account_id']
+    except:
+        return {"code":"wrong type account"},400
     transaction_id = None
     qry = f"""SELECT * FROM public.accounts
     WHERE account_id='{merchant_account_id}'
@@ -204,9 +214,13 @@ def transaction_create(token,connection,cursor,data):
 @config.timeout(300)
 @token_required
 def transaction_confirm(token,connection,cursor,transaction_id):
-    personal_account_id = service.decode_token(token)['account_id']
+    try:
+        personal_account_id = service.decode_token(token)['account_id']
+    except:
+        return {"code":"wrong type account"},400
     qry = f"""SELECT balance FROM public.accounts
-    WHERE account_id='{personal_account_id}'"""
+    WHERE account_id='{personal_account_id}'
+    AND type='personal'"""
     cursor.execute(qry)
     balance = cursor.fetchone()
     query = f"""SELECT amount,status FROM public.transactions
@@ -216,7 +230,7 @@ def transaction_confirm(token,connection,cursor,transaction_id):
     if not data:
         return {"code":"false"},400
     if not balance:
-        return {"code":"false"},400
+        return {"code":"wrong type account"},400
     if data[1] != 'INITIALIZED':
         return {"code":"wrong status"},400
     if balance[0] >= data[0]:
@@ -238,12 +252,15 @@ def transaction_confirm(token,connection,cursor,transaction_id):
         # update(extraData[0],'FAILED')
         connection.commit()
         config.close_connection(connection,cursor)
-        return {"code":"false"},400
+        return {"code":"failed"},400
 
 @config.timeout(300)
 @token_required
 def transaction_verify(token,connection,cursor,transaction_id):
-    personal_account_id = service.decode_token(token)['account_id']
+    try:
+        personal_account_id = service.decode_token(token)['account_id']
+    except:
+        return {"code":"wrong type account"},400
     qry = f"""SELECT status,account_income_id,amount FROM public.transactions
     WHERE transaction_id='{transaction_id}'"""
     cursor.execute(qry)
@@ -254,13 +271,18 @@ def transaction_verify(token,connection,cursor,transaction_id):
         return {"code":"wrong status"},400
     else:
         qry_1 = f"""SELECT balance FROM public.accounts
-        WHERE account_id='{personal_account_id}'"""
+        WHERE account_id='{personal_account_id}'
+        AND type='personal'"""
         cursor.execute(qry_1)
         balance = cursor.fetchone()
+        if not balance:
+            return {"code":"wrong type account"},400
         query = f"""SELECT amount FROM public.transactions
         WHERE transaction_id='{transaction_id}'"""
         cursor.execute(query)
         amount = cursor.fetchone()
+        if not amount:
+            return {"code":"false"},400
         if balance[0] >= amount[0]:
             qry_str = f"""UPDATE public.transactions
             SET status='VERIFIED'
@@ -302,7 +324,17 @@ def transaction_verify(token,connection,cursor,transaction_id):
 @config.timeout(300)
 @token_required
 def transaction_cancel(token,connection,cursor,transaction_id):
-    personal_account_id = service.decode_token(token)['account_id']
+    try:
+        personal_account_id = service.decode_token(token)['account_id']
+        qry_id = f"""SELECT type FROM public.accounts
+        WHERE account_id='{personal_account_id}'
+        AND type = 'personal'"""
+        cursor.execute(qry_id)
+        tmp = cursor.fetchone()
+        if not tmp:
+            return {"code":"wrong type account"},400
+    except:
+        return {"code":"wrong type account"},400
     qry = f"""SELECT status FROM public.transactions
     WHERE transaction_id='{transaction_id}'"""
     cursor.execute(qry)
@@ -313,7 +345,7 @@ def transaction_cancel(token,connection,cursor,transaction_id):
         return {"code":"wrong status"},400
     else:
         qry_str = f"""UPDATE public.transactions
-        SET status='CANCELED',account_outcome_id='{personal_account_id}'
+        SET status='CANCELED'
         WHERE transaction_id='{transaction_id}' RETURNING extra_data"""
         cursor.execute(qry_str)
         # extraData = cursor.fetchone()
@@ -332,16 +364,34 @@ def transaction_expired(token,connection,cursor,transaction_id):
     connection.commit()
     return {"code":"Expired"},400
 
-def get_token(data):
+def get_token(connection,cursor,data):
     try:
-        payload = {
-                'account_id': data
-                }
-        return jwt.encode(
-                    payload,
-                    key,
-                    algorithm='HS256'
-                ),200
+        qry = f"""SELECT merchant_id FROM public.accounts
+        WHERE account_id='{data}'"""
+        cursor.execute(qry)
+        merchant_id = cursor.fetchone()[0]
+        if not merchant_id:
+            payload = {
+                    'account_id': data
+                    }
+            return jwt.encode(
+                        payload,
+                        key,
+                        algorithm='HS256'
+                    ),200
+        else:
+            qry = f"""SELECT api_key FROM public.merchants
+            WHERE merchant_id='{merchant_id}'"""
+            cursor.execute(qry)
+            merchant_api_key = os.getenv('SECRET_KEY', cursor.fetchone()[0])
+            payload = {
+                    'account_id': data
+                    }
+            return jwt.encode(
+                        payload,
+                        merchant_api_key,
+                        algorithm='HS256'
+                    ),200
     except Exception as e:
         return e,400
 
